@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports | ARMA Classes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">AI</div>
+                <div>
+                    <h1>ARMA</h1>
+                    <p>Attendance OS</p>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/register">Register</a>
+                <a href="/attendance">Attendance</a>
+                <a class="active" href="/report">Reports</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <div class="container">
+                <header class="topbar reveal">
+                    <div>
+                        <p class="eyebrow">Firebase Analytics</p>
+                        <h2>Attendance Report</h2>
+                        <p class="muted">Filter records by student or date, inspect trends, and export CSV data.</p>
+                    </div>
+                    <a class="btn btn-secondary" href="/dashboard">Back</a>
+                </header>
+
+                <section class="form-box">
+                    <div class="grid split-grid">
+                        <div>
+                            <label for="studentId">Student ID</label>
+                            <input type="text" id="studentId" placeholder="Enter Student ID">
+
+                            <label for="dateFilter">Date</label>
+                            <input type="date" id="dateFilter">
+
+                            <div class="actions">
+                                <button onclick="loadReport()" id="reportBtn">Generate Report</button>
+                                <button class="btn-secondary" onclick="downloadCSV()">Download CSV</button>
+                            </div>
+                        </div>
+
+                        <article class="stat-card">
+                            <span class="status-badge"><span class="dot green"></span>Records</span>
+                            <div class="metric" id="total">0</div>
+                            <p>Total matching attendance records</p>
+                        </article>
+                    </div>
+
+                    <div class="table-card section-gap">
+                        <div class="table-scroll">
+                            <table id="reportTable">
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div class="chart-wrap">
+                            <canvas id="myChart"></canvas>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let chart = null;
+        const toast = document.getElementById("toast");
+
+        function notify(message) {
+            toast.innerText = message;
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 2600);
+        }
+
+        function loadReport() {
+            const reportBtn = document.getElementById("reportBtn");
+            reportBtn.classList.add("loading");
+
+            const id = document.getElementById("studentId").value.trim();
+            let date = document.getElementById("dateFilter").value;
+
+            if (date && date.includes("-") && date.split("-")[0].length == 2) {
+                let parts = date.split("-");
+                date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+
+            fetch("/get_report")
+                .then(res => res.json())
+                .then(data => {
+                    const records = Array.isArray(data) ? data : [];
+                    const table = document.getElementById("reportTable");
+
+                    table.innerHTML = `
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                        </tr>
+                    `;
+
+                    let filteredData = [];
+
+                    records.forEach(item => {
+                        if ((!id || item.id === id) && (!date || item.date === date)) {
+                            filteredData.push(item);
+                            table.innerHTML += `
+                                <tr>
+                                    <td>${item.id}</td>
+                                    <td>${item.date}</td>
+                                    <td>${item.time}</td>
+                                </tr>
+                            `;
+                        }
+                    });
+
+                    document.getElementById("total").innerText = filteredData.length;
+
+                    if (filteredData.length === 0) {
+                        notify("No matching records found.");
+                    }
+
+                    drawChart(filteredData);
+                })
+                .catch(() => notify("Unable to load Firebase report."))
+                .finally(() => reportBtn.classList.remove("loading"));
+        }
+
+        function drawChart(data) {
+            let countByDate = {};
+
+            data.forEach(item => {
+                countByDate[item.date] = (countByDate[item.date] || 0) + 1;
+            });
+
+            const labels = Object.keys(countByDate);
+            const values = Object.values(countByDate);
+
+            if (chart) {
+                chart.destroy();
+            }
+
+            chart = new Chart(document.getElementById("myChart"), {
+                type: "bar",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: "Attendance Count",
+                        data: values,
+                        borderWidth: 1,
+                        borderColor: "rgba(35, 216, 255, 0.85)",
+                        backgroundColor: "rgba(35, 216, 255, 0.28)",
+                        borderRadius: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: "#eef8ff" }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: "#91a7c4" },
+                            grid: { color: "rgba(145, 167, 196, 0.12)" }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: "#91a7c4", precision: 0 },
+                            grid: { color: "rgba(145, 167, 196, 0.12)" }
+                        }
+                    }
+                }
+            });
+        }
+
+        function downloadCSV() {
+            const rows = document.querySelectorAll("#reportTable tr");
+            let csv = [];
+
+            rows.forEach(row => {
+                let cols = row.querySelectorAll("td, th");
+                let data = [];
+                cols.forEach(col => data.push(col.innerText));
+                csv.push(data.join(","));
+            });
+
+            let blob = new Blob([csv.join("\n")], { type: "text/csv" });
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "attendance_report.csv";
+            link.click();
+            notify("CSV export started.");
+        }
+
+        loadReport();
+    </script>
+</body>
+</html>

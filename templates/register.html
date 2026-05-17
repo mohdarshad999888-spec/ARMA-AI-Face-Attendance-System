@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Student | ARMA Classes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">AI</div>
+                <div>
+                    <h1>ARMA</h1>
+                    <p>Attendance OS</p>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="/dashboard">Dashboard</a>
+                <a class="active" href="/register">Register</a>
+                <a href="/attendance">Attendance</a>
+                <a href="/report">Reports</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <div class="container">
+                <header class="topbar reveal">
+                    <div>
+                        <p class="eyebrow">Biometric Enrollment</p>
+                        <h2>Student Registration</h2>
+                        <p class="muted">Align the face inside the frame, capture five samples, then finalize training.</p>
+                    </div>
+                    <a class="btn btn-secondary" href="/dashboard">Back</a>
+                </header>
+
+                <section class="form-box">
+                    <div class="grid split-grid">
+                        <div>
+                            <label for="student_id">Student ID</label>
+                            <input type="text" id="student_id" placeholder="Enter Student ID" required>
+
+                            <div class="progress-wrap">
+                                <div class="progress-head">
+                                    <span id="counter">Images: 0 / 5</span>
+                                    <span id="face_status">Waiting for camera</span>
+                                </div>
+                                <div class="progress"><span id="progressBar"></span></div>
+                            </div>
+
+                            <div class="camera-card">
+                                <div class="camera-shell" id="cameraShell">
+                                    <video id="video" class="mirror" autoplay playsinline></video>
+                                    <canvas id="overlay" class="mirror" width="400" height="300"></canvas>
+                                    <div class="scan-line"></div>
+                                    <div class="face-frame" id="faceFrame">
+                                        <span class="corner tl"></span>
+                                        <span class="corner tr"></span>
+                                        <span class="corner bl"></span>
+                                        <span class="corner br"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="actions">
+                                <button id="captureBtn" onclick="capture()">Capture</button>
+                                <button class="btn-success" onclick="saveImage()" id="saveBtn" style="display:none;">Save Sample</button>
+                                <button class="btn-secondary" onclick="retake()" id="retakeBtn" style="display:none;">Retake</button>
+                            </div>
+
+                            <div class="status-panel">
+                                <p id="status">Initializing camera...</p>
+                            </div>
+                        </div>
+
+                        <aside class="preview-card glass">
+                            <p class="eyebrow">Capture Preview</p>
+                            <h3>Latest Sample</h3>
+                            <p class="muted">Your captured image appears here before saving.</p>
+                            <div class="preview-frame">
+                                <img id="preview" alt="Captured face preview">
+                                <span id="previewEmpty" class="muted">No capture yet</span>
+                            </div>
+                        </aside>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("overlay");
+        const ctx = canvas.getContext("2d");
+        const preview = document.getElementById("preview");
+        const statusText = document.getElementById("status");
+        const faceStatus = document.getElementById("face_status");
+        const faceFrame = document.getElementById("faceFrame");
+        const progressBar = document.getElementById("progressBar");
+        const previewEmpty = document.getElementById("previewEmpty");
+        const toast = document.getElementById("toast");
+        const studentInput = document.getElementById("student_id");
+        const captureBtn = document.getElementById("captureBtn");
+
+        let capturedImage = null;
+        let count = 0;
+        let faceInsideBox = false;
+        let cameraReady = false;
+        let lastDetectedTime = 0;
+        let idCheckTimer = null;
+        let idIsDuplicate = false;
+
+        function notify(message) {
+            toast.innerText = message;
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 2600);
+        }
+
+        function setStatus(message, type = "") {
+            statusText.innerText = message;
+            statusText.className = type;
+        }
+
+        function updateProgress() {
+            document.getElementById("counter").innerText = `Images: ${count} / 5`;
+            progressBar.style.width = `${Math.min(count, 5) * 20}%`;
+        }
+
+        async function readResponse(response) {
+            const contentType = response.headers.get("content-type") || "";
+
+            if (contentType.includes("application/json")) {
+                return await response.json();
+            }
+
+            return {
+                success: response.ok,
+                message: await response.text()
+            };
+        }
+
+        async function validateStudentId(id, showMessage = true) {
+            if (!id) {
+                idIsDuplicate = false;
+                captureBtn.disabled = false;
+                return false;
+            }
+
+            try {
+                const response = await fetch(`/check_student_id?id=${encodeURIComponent(id)}`);
+                const result = await readResponse(response);
+
+                if (response.status === 409 || result.message === "ID already registered") {
+                    idIsDuplicate = true;
+                    captureBtn.disabled = true;
+                    setStatus("ID already registered", "error");
+                    if (showMessage) notify("ID already registered");
+                    return true;
+                }
+
+                if (!response.ok) {
+                    idIsDuplicate = false;
+                    captureBtn.disabled = true;
+                    setStatus(result.message || "Unable to validate Student ID.", "error");
+                    if (showMessage) notify(result.message || "Unable to validate Student ID.");
+                    return true;
+                }
+
+                idIsDuplicate = false;
+                captureBtn.disabled = false;
+                return false;
+            } catch {
+                idIsDuplicate = false;
+                captureBtn.disabled = true;
+                setStatus("Unable to validate Student ID. Please check Firebase connection.", "error");
+                if (showMessage) notify("Unable to validate Student ID.");
+                return true;
+            }
+        }
+
+        studentInput.addEventListener("input", () => {
+            if (count > 0) return;
+
+            clearTimeout(idCheckTimer);
+
+            idCheckTimer = setTimeout(() => {
+                const id = studentInput.value.trim();
+                validateStudentId(id, false);
+            }, 450);
+        });
+
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                cameraReady = true;
+                setStatus("Camera ready. Align face inside the frame.", "success");
+                requestAnimationFrame(loop);
+            })
+            .catch(() => {
+                setStatus("Camera access denied.", "error");
+                notify("Camera access denied.");
+            });
+
+        let detector = null;
+        if ("FaceDetector" in window) {
+            detector = new FaceDetector({ maxDetectedFaces: 1 });
+        }
+
+        const box = { w: 160, h: 180, x: (400 - 160) / 2, y: (300 - 180) / 2 - 20 };
+
+        async function loop() {
+            ctx.clearRect(0, 0, 400, 300);
+            ctx.strokeStyle = faceInsideBox ? "#28f5a7" : "#ffd166";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(box.x, box.y, box.w, box.h);
+
+            if (idIsDuplicate && count === 0) {
+                faceStatus.innerText = "Duplicate ID";
+                requestAnimationFrame(loop);
+                return;
+            }
+
+            if (detector && video.readyState >= 2) {
+                try {
+                    const faces = await detector.detect(video);
+                    if (faces.length > 0) {
+                        const f = faces[0].boundingBox;
+                        ctx.strokeStyle = "#28f5a7";
+                        ctx.strokeRect(f.x, f.y, f.width, f.height);
+
+                        const ix1 = Math.max(f.x, box.x);
+                        const iy1 = Math.max(f.y, box.y);
+                        const ix2 = Math.min(f.x + f.width, box.x + box.w);
+                        const iy2 = Math.min(f.y + f.height, box.y + box.h);
+                        const intersectionArea = ix2 > ix1 && iy2 > iy1 ? (ix2 - ix1) * (iy2 - iy1) : 0;
+                        const percentInside = (intersectionArea / (f.width * f.height)) * 100;
+
+                        if (percentInside > 30) {
+                            faceInsideBox = true;
+                            lastDetectedTime = Date.now();
+                            faceStatus.innerText = "Face locked";
+                            setStatus("Perfect alignment. Capture when ready.", "success");
+                        } else if (Date.now() - lastDetectedTime < 800) {
+                            faceInsideBox = true;
+                            faceStatus.innerText = "Hold steady";
+                            setStatus("Hold steady...", "warning");
+                        } else {
+                            faceInsideBox = false;
+                            faceStatus.innerText = "Align face";
+                            setStatus("Move face inside the glowing frame.", "warning");
+                        }
+                    } else {
+                        faceInsideBox = false;
+                        faceStatus.innerText = "Searching";
+                    }
+                } catch {
+                    faceInsideBox = false;
+                    faceStatus.innerText = "Face API unavailable";
+                }
+            } else if (!detector) {
+                faceStatus.innerText = "Guided capture";
+            }
+
+            faceFrame.classList.toggle("locked", faceInsideBox);
+            requestAnimationFrame(loop);
+        }
+
+        async function capture() {
+            if (!cameraReady) {
+                notify("Camera is not ready.");
+                return;
+            }
+
+            const id = studentInput.value.trim();
+
+            if (!id) {
+                notify("Enter Student ID first.");
+                return;
+            }
+
+            if (count === 0 && (idIsDuplicate || await validateStudentId(id))) {
+                return;
+            }
+
+            const temp = document.createElement("canvas");
+            temp.width = 400;
+            temp.height = 300;
+            const tctx = temp.getContext("2d");
+            tctx.translate(400, 0);
+            tctx.scale(-1, 1);
+            tctx.drawImage(video, 0, 0, 400, 300);
+            capturedImage = temp.toDataURL("image/jpeg");
+
+            preview.src = capturedImage;
+            preview.style.display = "block";
+            previewEmpty.style.display = "none";
+            document.getElementById("saveBtn").style.display = "inline-flex";
+            document.getElementById("retakeBtn").style.display = "inline-flex";
+            setStatus(`Sample ready (${count + 1}/5). Save or retake.`, "success");
+        }
+
+        async function saveImage() {
+            const id = studentInput.value.trim();
+
+            if (!id) {
+                notify("Enter Student ID first.");
+                return;
+            }
+
+            if (count === 0 && (idIsDuplicate || await validateStudentId(id))) {
+                return;
+            }
+
+            if (!capturedImage) {
+                notify("Capture an image first.");
+                return;
+            }
+
+            const saveBtn = document.getElementById("saveBtn");
+            saveBtn.classList.add("loading");
+
+            let response;
+            let result;
+
+            try {
+                response = await fetch("/save_student_camera", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: id, image: capturedImage, count: count })
+                });
+
+                result = await readResponse(response);
+            } catch {
+                saveBtn.classList.remove("loading");
+                setStatus("Unable to save sample. Please check the server connection.", "error");
+                notify("Unable to save sample.");
+                return;
+            }
+
+            saveBtn.classList.remove("loading");
+            const message = result.message || "";
+
+            if (response.status === 409 || message === "ID already registered") {
+                idIsDuplicate = true;
+                captureBtn.disabled = true;
+                setStatus("ID already registered", "error");
+                notify("ID already registered");
+                return;
+            }
+
+            if (!response.ok) {
+                setStatus(message || "Unable to save sample.", "error");
+                notify(message || "Unable to save sample.");
+                return;
+            }
+
+            if (message.toLowerCase().includes("no face")) {
+                setStatus("No face detected by backend. Please retake.", "error");
+                notify("Retake the sample with clearer lighting.");
+                return;
+            }
+
+            count++;
+            updateProgress();
+            retake(false);
+            setStatus(`Saved sample ${count}/5.`, "success");
+
+            if (count === 5) {
+                let finalizeResponse;
+                let finalizeResult;
+
+                try {
+                    finalizeResponse = await fetch("/finalize_registration", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: id })
+                    });
+                    finalizeResult = await readResponse(finalizeResponse);
+                } catch {
+                    setStatus("Unable to finalize registration. Please check the server connection.", "error");
+                    notify("Unable to finalize registration.");
+                    return;
+                }
+
+                if (!finalizeResponse.ok) {
+                    const finalizeMessage = finalizeResult.message || "Unable to finalize registration.";
+                    setStatus(finalizeMessage, "error");
+                    notify(finalizeMessage);
+                    return;
+                }
+
+                setStatus("Registration completed and model updated.", "success");
+                captureBtn.disabled = true;
+                notify("Registration completed.");
+            }
+        }
+
+        function retake(showMessage = true) {
+            capturedImage = null;
+            preview.style.display = "none";
+            previewEmpty.style.display = "inline";
+            document.getElementById("saveBtn").style.display = "none";
+            document.getElementById("retakeBtn").style.display = "none";
+            if (showMessage) setStatus("Retake ready. Align and capture again.", "warning");
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | ARMA Classes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">AI</div>
+                <div>
+                    <h1>ARMA</h1>
+                    <p>Attendance OS</p>
+                </div>
+            </div>
+            <nav class="nav">
+                <a class="active" href="/dashboard">Dashboard</a>
+                <a href="/register">Register</a>
+                <a href="/attendance">Attendance</a>
+                <a href="/report">Reports</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <div class="container">
+                <header class="topbar dashboard-hero reveal">
+                    <div class="dashboard-title-wrap">
+                        <p class="eyebrow">YOUR  FUTURE STARTS HERE</p>
+                        <h2 class="dashboard-title" data-text="ARMA CLASSES">ARMA CLASSES</h2>
+                        <p class="dashboard-subtitle">AI Face Attendance System</p>
+                    </div>
+                    <a class="btn btn-secondary" href="/logout">Logout</a>
+                </header>
+
+                <section class="grid stats-grid">
+                    <article class="stat-card reveal">
+                        <span class="status-badge"><span class="dot"></span>Students</span>
+                        <div class="metric" id="studentCount">--</div>
+                        <p>Unique IDs found in attendance records</p>
+                    </article>
+                    <article class="stat-card reveal">
+                        <span class="status-badge"><span class="dot green"></span>Today</span>
+                        <div class="metric" id="todayCount">--</div>
+                        <p>Attendance marked today</p>
+                    </article>
+                    <article class="stat-card reveal">
+                        <span class="status-badge"><span class="dot"></span>Total</span>
+                        <div class="metric" id="totalCount">--</div>
+                        <p>Total Firebase attendance entries</p>
+                    </article>
+                    <article class="stat-card reveal">
+                        <span class="status-badge"><span class="dot green"></span>Status</span>
+                        <div class="metric" id="systemStatus">Live</div>
+                        <p>Camera and report modules ready</p>
+                    </article>
+                </section>
+
+                <section class="grid dashboard-grid">
+                    <article class="card reveal" onclick="go('register')">
+                        <div class="card-top">
+                            <div class="icon-bubble">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M16 21V19A4 4 0 0 0 12 15H7A4 4 0 0 0 3 19V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M9.5 11A4 4 0 1 0 9.5 3A4 4 0 0 0 9.5 11Z" stroke="currentColor" stroke-width="1.8"/>
+                                    <path d="M19 8V14M22 11H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <span class="pill">Enroll</span>
+                        </div>
+                        <h3>Student Registration</h3>
+                        <p>Capture five face samples with guided alignment and training-ready previews.</p>
+                    </article>
+
+                    <article class="card reveal" onclick="go('attendance')">
+                        <div class="card-top">
+                            <div class="icon-bubble">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M4 7V5A1 1 0 0 1 5 4H8M16 4H19A1 1 0 0 1 20 5V8M20 16V19A1 1 0 0 1 19 20H16M8 20H5A1 1 0 0 1 4 19V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 12H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <span class="pill">Scan</span>
+                        </div>
+                        <h3>Face Attendance</h3>
+                        <p>Start a live recognition session with automated scan cycles and instant feedback.</p>
+                    </article>
+
+                    <article class="card reveal" onclick="go('report')">
+                        <div class="card-top">
+                            <div class="icon-bubble">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M4 19V5M4 19H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M8 16V11M12 16V7M16 16V9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <span class="pill">Firebase</span>
+                        </div>
+                        <h3>Reports</h3>
+                        <p>Filter attendance, visualize activity, and export clean CSV records.</p>
+                    </article>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function go(page) {
+            window.location.href = "/" + page;
+        }
+
+        function todayISO() {
+            return new Date().toISOString().slice(0, 10);
+        }
+
+        fetch("/get_report")
+            .then(res => res.json())
+            .then(data => {
+                const records = Array.isArray(data) ? data : [];
+                const unique = new Set(records.map(item => item.id).filter(Boolean));
+                const today = records.filter(item => item.date === todayISO());
+                document.getElementById("studentCount").innerText = unique.size;
+                document.getElementById("todayCount").innerText = today.length;
+                document.getElementById("totalCount").innerText = records.length;
+            })
+            .catch(() => {
+                document.getElementById("systemStatus").innerText = "Check";
+                document.getElementById("studentCount").innerText = "0";
+                document.getElementById("todayCount").innerText = "0";
+                document.getElementById("totalCount").innerText = "0";
+            });
+    </script>
+</body>
+</html>

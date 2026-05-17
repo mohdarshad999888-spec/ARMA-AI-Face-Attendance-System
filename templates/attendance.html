@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance | ARMA Classes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">AI</div>
+                <div>
+                    <h1>ARMA</h1>
+                    <p>Attendance OS</p>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/register">Register</a>
+                <a class="active" href="/attendance">Attendance</a>
+                <a href="/report">Reports</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <div class="container">
+                <header class="topbar reveal">
+                    <div>
+                        <p class="eyebrow">Live Recognition</p>
+                        <h2>Face Attendance Scanner</h2>
+                        <p class="muted">The system scans every five seconds and marks attendance through the existing OpenCV route.</p>
+                    </div>
+                    <a class="btn btn-secondary" href="/dashboard">Back</a>
+                </header>
+
+                <section class="form-box">
+                    <div class="grid split-grid">
+                        <div class="camera-card" id="scannerCard">
+                            <div class="camera-shell">
+                                <video id="video" autoplay playsinline></video>
+                                <canvas id="canvas" width="400" height="300"></canvas>
+                                <div class="scan-line"></div>
+                                <div class="face-frame locked">
+                                    <span class="corner tl"></span>
+                                    <span class="corner tr"></span>
+                                    <span class="corner bl"></span>
+                                    <span class="corner br"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside class="glass preview-card">
+                            <p class="eyebrow">Recognition Feed</p>
+                            <h3>Realtime Status</h3>
+                            <p class="muted">Keep the face centered while the AI scanner checks the current frame.</p>
+
+                            <div class="status-panel">
+                                <span class="status-badge"><span class="dot green"></span><span id="scannerState">Camera starting</span></span>
+                                <p id="status">Waiting for camera access...</p>
+                                <p class="notice" id="lastScan">Next scan will run automatically.</p>
+                            </div>
+
+                            <div class="actions">
+                                <button onclick="capture()" id="manualScan">Scan Now</button>
+                                <a class="btn btn-secondary" href="/report">View Reports</a>
+                            </div>
+                        </aside>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const statusText = document.getElementById("status");
+        const scannerState = document.getElementById("scannerState");
+        const lastScan = document.getElementById("lastScan");
+        const scannerCard = document.getElementById("scannerCard");
+
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                scannerState.innerText = "Camera online";
+                statusText.innerText = "Scanner ready. Center the face in the frame.";
+            })
+            .catch(() => {
+                scannerState.innerText = "Camera blocked";
+                statusText.innerText = "Camera access denied.";
+                statusText.className = "error";
+            });
+
+        function drawBox() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "#28f5a7";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(120, 60, 160, 180);
+        }
+
+        setInterval(drawBox, 100);
+        setInterval(capture, 5000);
+
+        function capture() {
+            if (!video.videoWidth) return;
+
+            statusText.innerText = "Scanning current frame...";
+            statusText.className = "warning";
+            scannerState.innerText = "Scanning";
+            document.getElementById("manualScan").classList.add("loading");
+
+            let tempCanvas = document.createElement("canvas");
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+
+            let tempCtx = tempCanvas.getContext("2d");
+            tempCtx.drawImage(video, 0, 0);
+
+            let image = tempCanvas.toDataURL("image/jpeg");
+
+            fetch("/mark_attendance", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: image })
+            })
+            .then(res => res.text())
+            .then(data => {
+                statusText.innerText = data;
+                scannerState.innerText = data.toLowerCase().includes("saved") ? "Attendance marked" : "Scan complete";
+                statusText.className = data.toLowerCase().includes("saved") ? "success" : "warning";
+                scannerCard.classList.toggle("success-glow", data.toLowerCase().includes("saved"));
+                lastScan.innerText = "Last scan: " + new Date().toLocaleTimeString();
+            })
+            .catch(() => {
+                statusText.innerText = "Scan failed. Please try again.";
+                statusText.className = "error";
+                scannerState.innerText = "Retry needed";
+            })
+            .finally(() => {
+                document.getElementById("manualScan").classList.remove("loading");
+            });
+        }
+    </script>
+</body>
+</html>
